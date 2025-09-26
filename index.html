@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Obrázkové Bingo – generátor karet + pořadí losování (PDF)</title>
+  <style>
+    :root { --primary:#2563eb; --accent:#10b981; --danger:#ef4444; --muted:#6b7280; }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;line-height:1.45;margin:0;background:#f8fafc;color:#0f172a}
+    header{padding:1.2rem 1rem;background:white;box-shadow:0 1px 8px rgba(0,0,0,.05);position:sticky;top:0;z-index:5}
+    h1{font-size:1.35rem;margin:.1rem 0 .2rem 0}
+    .wrap{max-width:1100px;margin:0 auto;padding:1rem}
+    .grid{display:grid;grid-template-columns:280px 1fr;gap:1rem}
+    @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
+    .card{background:white;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.04)}
+    .card h2{font-size:1.05rem;margin:0;padding:.9rem 1rem;border-bottom:1px solid #e5e7eb}
+    .card .content{padding:1rem}
+    label{display:block;font-size:.95rem;margin:.6rem 0 .3rem}
+    input[type="number"],select{width:100%;padding:.6rem .7rem;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb}
+    input[type="checkbox"]{transform:scale(1.1);margin-right:.5rem}
+    input[type="file"]{width:100%}
+    .row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+    .btn{appearance:none;border:0;background:var(--primary);color:white;padding:.8rem 1rem;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn[disabled]{pointer-events:none;opacity:.5;cursor:not-allowed}
+    .btn.secondary{background:#111827;color:white}
+    .btn.ghost{background:#e5e7eb;color:#111827}
+    .hint{font-size:.9rem;color:var(--muted)}
+    .pill{display:inline-block;padding:.2rem .5rem;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:.75rem;margin-left:.35rem}
+    .preview{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+    .thumb{border:1px dashed #d1d5db;border-radius:10px;padding:.5rem;background:#fafafa;text-align:center}
+    .thumb img{max-width:100%;max-height:120px}
+    /* Bingo karta render */
+    .bingo{width:794px;height:1123px; /* A4 @ ~96dpi */
+           background:white;border:1px solid #e5e7eb;border-radius:14px;display:flex;flex-direction:column;overflow:hidden}
+    .bingo header{box-shadow:none;position:static;border-bottom:2px solid #e5e7eb}
+    .bingo .meta{display:flex;justify-content:space-between;align-items:center;padding:.6rem 1rem;color:#374151}
+    .board{flex:1;display:grid;gap:8px;padding:12px 22px 22px 22px;grid-template-rows:repeat(var(--size),1fr);grid-template-columns:repeat(var(--size),1fr)}
+    .cell{border:1px solid #e5e7eb;border-radius:10px;display:grid;place-items:center;padding:8px}
+    .cell img{max-width:100%;max-height:100%}
+    .cell .lbl{font-size:28px}
+    .free{background:rgba(16,185,129,.12);border:2px dashed #10b981}
+    .log{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;background:#0b1020;color:#e2e8f0;border-radius:12px;padding:.8rem;overflow:auto;max-height:300px}
+    .good{color:#16a34a}
+    .bad{color:#dc2626}
+    .flex{display:flex;gap:.5rem;align-items:center}
+    .divider{height:1px;background:#e5e7eb;margin:1rem 0}
+    footer{padding:1rem;color:#6b7280;text-align:center}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Obrázkové Bingo – generátor karet + PDF a pořadí losování <span class="pill">offline v prohlížeči</span></h1>
+      <div class="hint">Na mobilech běží automaticky <strong>rychlý režim</strong> kvůli paměti a rychlosti; na PC plná kvalita.</div>
+    </div>
+  </header>
+
+  <div class="wrap grid">
+    <!-- Ovládání -->
+    <section class="card">
+      <h2>Nastavení</h2>
+      <div class="content">
+        <label>Obrázky pro bingo (nahraj více souborů) – volitelné</label>
+        <input id="files" type="file" accept="image/*" multiple />
+        <div class="row" style="margin-top:.4rem">
+          <button id="standardizeUploads" class="btn ghost" type="button">Sjednotit nahrané obrázky (čtvercové PNG)</button>
+          <label class="hint" style="margin:0 .4rem 0 0">Cílová velikost</label>
+          <select id="stdSize">
+            <option value="192">192 px (mobil rychle)</option>
+            <option value="256" selected>256 px</option>
+            <option value="300">300 px (PC)</option>
+            <option value="512">512 px</option>
+          </select>
+          <span class="hint">Převede nahrané fotky na čtverec (cover), průhledné PNG – stejné měřítko jako ikony.</span>
+        </div>
+        <div id="stdStatus" class="hint" style="margin:.3rem 0 0 0"></div>
+        <div class="hint">Když nic nenahraješ a nic nezaklikneš v knihovně, vytvoří se automaticky barevné očíslované ikony.</div>
+
+        <label>Počet karet (hráčů)</label>
+        <input id="players" type="number" min="1" max="120" value="15" />
+
+        <div class="row">
+          <div style="flex:1">
+            <label>Velikost mřížky</label>
+            <select id="size">
+              <option value="5" selected>5 × 5</option>
+              <option value="4">4 × 4</option>
+              <option value="3">3 × 3</option>
+            </select>
+          </div>
+          <div class="flex" style="margin-top:1.8rem">
+            <input id="free" type="checkbox" checked />
+            <label for="free" style="margin:0">Střed je „FREE“ (automaticky označený)</label>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:.4rem">
+          <div class="flex">
+            <input id="unique" type="checkbox" checked />
+            <label for="unique" style="margin:0">Vynutit jednoho prvního výherce</label>
+          </div>
+          <div class="flex">
+            <input id="seeded" type="checkbox" />
+            <label for="seeded" style="margin:0">Použít pevné náhodné seed (opakovatelný výsledek)</label>
+          </div>
+        </div>
+
+        <label>Počet unikátních symbolů v balíčku (fallback)</label>
+        <input id="deckSize" type="number" min="9" max="200" value="60" />
+        <div class="hint">Použije se jen pokud nevybereš nic v knihovně ani nenahraješ obrázky.</div>
+
+        <div class="divider"></div>
+        <div class="row">
+          <button id="go" class="btn" disabled>Vygenerovat karty + pořadí (PDF)</button>
+          <button id="dlCards" class="btn secondary" disabled>Stáhnout PDF karet</button>
+          <button id="dlCalls" class="btn ghost" disabled>Stáhnout PDF s pořadím</button>
+        </div>
+        <div style="margin-top:.4rem" class="hint">Po vygenerování se zde zpřístupní tlačítka pro stažení obou PDF.</div>
+        <div id="deckInfo" class="hint" style="margin-top:.4rem"></div>
+      </div>
+    </section>
+
+    <!-- Knihovna obrázků (Twemoji CDN) -->
+    <section class="card">
+      <h2>Knihovna dětských ikon (zaklikni, co chceš použít)</h2>
+      <div class="content">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div class="hint">Motivy: zvířátka, ovoce, počasí, hračky, doprava…</div>
+          <div class="row">
+            <button id="selectAll" class="btn ghost" type="button">Vybrat vše</button>
+            <button id="clearAll" class="btn ghost" type="button">Zrušit výběr</button>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="row" style="gap:.6rem;flex-wrap:wrap">
+          <label class="flex"><input id="filter-all" name="cat" type="radio" checked> Vše</label>
+          <label class="flex"><input name="cat" type="radio" value="animals"> Zvířátka</label>
+          <label class="flex"><input name="cat" type="radio" value="food"> Jídlo & ovoce</label>
+          <label class="flex"><input name="cat" type="radio" value="weather"> Počasí</label>
+          <label class="flex"><input name="cat" type="radio" value="toys"> Hračky & zábava</label>
+          <label class="flex"><input name="cat" type="radio" value="transport"> Doprava</label>
+          <label class="flex"><input name="cat" type="radio" value="nature"> Příroda</label>
+          <label class="flex"><input name="cat" type="radio" value="sea"> Moře & oceán</label>
+          <label class="flex"><input name="cat" type="radio" value="space"> Vesmír & fantasy</label>
+        </div>
+        <div class="row" style="gap:.4rem;justify-content:flex-end">
+          <span class="hint" style="margin-right:auto">Tip: Tlačítka níže pracují s <strong>aktuálně zvolenou kategorií</strong>.</span>
+          <button id="selectShown" class="btn ghost" type="button">Vybrat zobrazené</button>
+          <button id="clearShown" class="btn ghost" type="button">Zrušit zobrazené</button>
+        </div>
+        <div id="gallery" class="preview" style="margin-top:.8rem"></div>
+        <div id="selSummary" class="hint" style="margin-top:.4rem">Vybráno: 0 ikon.</div>
+      </div>
+    </section>
+
+    <!-- Přehled vybraných obrázků (balíček) -->
+    <section class="card">
+      <h2>Vybrané obrázky (balíček)</h2>
+      <div class="content">
+        <div class="hint">Zde uvidíš všechny <strong>aktuálně použité</strong> symboly pro generování: nahrané fotky + vybranou knihovnu (nebo fallback, pokud není nic vybráno).</div>
+        <div id="deckPreview" class="preview" style="margin-top:.5rem; max-height:360px; overflow:auto"></div>
+        <div class="divider"></div>
+        <div class="log" id="log" aria-live="polite"></div>
+        <div id="status" class="hint" style="margin-top:.4rem">Připraveno.</div>
+      </div>
+    </section>
+  </div>
+
+  <footer>© 2025 – Obrázkové Bingo. Vše běží lokálně v prohlížeči (žádný server). | Emoji artwork by Twemoji (CC-BY 4.0).</footer>
+
+  <!-- Knihovny (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+  <script>
+  const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || Math.min(window.innerWidth, screen.width) < 768;
+  const RENDER_SCALE = IS_MOBILE ? 1 : 2;
+  const JPEG_QUALITY = IS_MOBILE ? 0.85 : 0.92;
+  const UNIQUE_TRIES  = IS_MOBILE ? 300 : 1500;
+
+  const logBox = document.getElementById('log');
+  function log(msg, cls){ const p=document.createElement('div'); if(cls) p.className=cls; p.textContent=msg; logBox.appendChild(p); logBox.scrollTop = logBox.scrollHeight; }
+
+  function getEl(id){ return document.getElementById(id); }
+
+  // Emoji knihovna
+  const EMOJI_LIBRARY = [
+    ['Kočka','1f431','animals'],['Pes','1f436','animals'],['Medvěd','1f43b','animals'],['Lev','1f981','animals'],['Tygr','1f42f','animals'],['Slon','1f418','animals'],['Opice','1f412','animals'],['Kuře','1f425','animals'],['Ryba','1f41f','animals'],['Delfín','1f42c','animals'],
+    ['Jablko','1f34e','food'],['Banán','1f34c','food'],['Jahoda','1f353','food'],['Meloun','1f349','food'],['Třešně','1f352','food'],['Zmrzlina','1f366','food'],['Lízátko','1f36d','food'],['Dort','1f382','food'],['Sušenka','1f36a','food'],['Mrkev','1f955','food'],
+    ['Slunce','2600','weather'],['Měsíc','1f319','weather'],['Hvězda','2b50','weather'],['Duhová','1f308','weather'],['Mrak','2601','weather'],['Déšť','1f327','weather'],['Sníh','2744','weather'],['Blesk','26a1','weather'],
+    ['Balónek','1f388','toys'],['Dárek','1f381','toys'],['Party','1f389','toys'],['Puzzle','1f9e9','toys'],['Míč','26bd','toys'],['Basket','1f3c0','toys'],['Kytara','1f3b8','toys'],['Bubínek','1f941','toys'],['Noty','1f3b5','toys'],['Teddy','1f9f8','toys'],
+    ['Domeček','1f3e0','transport'],['Auto','1f697','transport'],['Autobus','1f68c','transport'],['Vlak','1f682','transport'],['Letadlo','2708','transport'],['Loď','26f5','transport'],['Raketa','1f680','transport'],['Policie','1f693','transport'],['Hasiči','1f692','transport'],['Traktor','1f69c','transport'],
+    ['List','1f342','nature'],['Strom','1f333','nature'],['Květ','1f33c','nature'],['Tulipán','1f337','nature'],['Hříbek','1f344','nature'],['Srdce','2764','nature'],['Zelený lístek','1f331','nature'],['Motýl','1f98b','nature'],['Včela','1f41d','nature'],['Šnek','1f40c','nature'],
+    ['Tropická rybka','1f420','sea'],['Rybička','1f41f','sea'],['Čtverzubec','1f421','sea'],['Žralok','1f988','sea'],['Velryba','1f40b','sea'],['Velryba s fontánou','1f433','sea'],['Chobotnice','1f419','sea'],['Krab','1f980','sea'],['Kreveta','1f990','sea'],['Kalamár','1f991','sea'],
+    ['Mimozemšťan','1f47d','space'],['Příšerka','1f47e','space'],['Robot','1f916','space'],['Planeta s prstenci','1fa90','space'],['Zářící hvězda','1f31f','space'],['Raketa','1f680','space']
+  ];
+  const CDN_BASE = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/';
+  function cpToUrl(hex){ return CDN_BASE + hex.toLowerCase() + '.png'; }
+
+  // Výběr knihovny
+  const galleryEl = getEl('gallery');
+  const selSummaryEl = getEl('selSummary');
+  var GALLERY_SELECTED = new Set();
+
+  function renderGallery(filter){
+    galleryEl.innerHTML='';
+    EMOJI_LIBRARY.forEach(([label,hex,cat])=>{
+      if(filter && filter!=='all' && cat!==filter) return;
+      const wrap = document.createElement('div'); wrap.className='thumb'; wrap.style.cursor='pointer';
+      const img = document.createElement('img'); img.src = cpToUrl(hex); img.alt=label; img.loading='lazy';
+      const cap = document.createElement('div'); cap.className='hint'; cap.textContent = label;
+      const chk = document.createElement('input'); chk.type='checkbox'; chk.style.marginTop='.5rem'; chk.checked = GALLERY_SELECTED.has(hex);
+      chk.addEventListener('change', ()=>{ if(chk.checked) GALLERY_SELECTED.add(hex); else GALLERY_SELECTED.delete(hex); updateSelectionUI(); });
+      wrap.addEventListener('click', (e)=>{ if(e.target!==chk){ chk.checked=!chk.checked; chk.dispatchEvent(new Event('change')); } });
+      wrap.appendChild(img); wrap.appendChild(cap); wrap.appendChild(chk);
+      galleryEl.appendChild(wrap);
+    });
+  }
+  function updateSelectionUI(){
+    selSummaryEl.textContent = 'Vybráno: ' + GALLERY_SELECTED.size + ' ikon.';
+    renderDeckPreview(); updateGoState();
+  }
+  document.querySelectorAll('input[name="cat"]').forEach(r=> r.addEventListener('change', ()=> renderGallery(getCurrentCat())));
+  function getCurrentCat(){ const r=document.querySelector('input[name="cat"]:checked'); return r? r.value : 'all'; }
+  document.getElementById('selectShown').addEventListener('click', ()=>{ const cat=getCurrentCat(); EMOJI_LIBRARY.forEach(e=>{ if(cat==='all'||e[2]===cat) GALLERY_SELECTED.add(e[1]); }); updateSelectionUI(); renderGallery(cat); });
+  document.getElementById('clearShown').addEventListener('click', ()=>{ const cat=getCurrentCat(); EMOJI_LIBRARY.forEach(e=>{ if(cat==='all'||e[2]===cat) GALLERY_SELECTED.delete(e[1]); }); updateSelectionUI(); renderGallery(cat); });
+  document.getElementById('selectAll').addEventListener('click', ()=>{ EMOJI_LIBRARY.forEach(e=> GALLERY_SELECTED.add(e[1])); updateSelectionUI(); renderGallery(getCurrentCat()); });
+  document.getElementById('clearAll').addEventListener('click', ()=>{ GALLERY_SELECTED.clear(); updateSelectionUI(); renderGallery(getCurrentCat()); });
+
+  // Preview & stav
+  function buildPreviewDeck(){
+    const uploads = Array.from(getEl('files').files||[]).map(f=>({src: URL.createObjectURL(f), label:f.name}));
+    const lib = Array.from(GALLERY_SELECTED).map(hex=>({src: cpToUrl(hex), label:''}));
+    if(uploads.length || lib.length) return uploads.concat(lib);
+    const n = Math.max(parseInt(getEl('deckSize').value||'24',10), 0);
+    return Array.from({length:n}, (_,i)=>({src: makeNumberIcon(i+1), label: String(i+1)}));
+  }
+  function renderDeckPreview(){
+    const host = getEl('deckPreview'); host.innerHTML='';
+    buildPreviewDeck().forEach((it,idx)=>{
+      const w=document.createElement('div'); w.className='thumb';
+      const im=document.createElement('img'); im.src=it.src; im.alt=it.label||('#'+(idx+1)); const c=document.createElement('div'); c.className='hint'; c.textContent=it.label||('#'+(idx+1));
+      w.appendChild(im); w.appendChild(c); host.appendChild(w);
+    });
+    const up=(getEl('files').files||[]).length, lib=GALLERY_SELECTED.size; getEl('deckInfo').textContent = 'Balíček: '+(up+lib)+' položek (uploady: '+up+', knihovna: '+lib+')';
+  }
+  function computeRequiredCells(){ const s=parseInt(getEl('size').value,10), free=getEl('free').checked; return s*s - (free?1:0); }
+  function plannedDeckLength(){ const up=(getEl('files').files||[]).length; return up + GALLERY_SELECTED.size; }
+  function updateGoState(){ const need=computeRequiredCells(), have=plannedDeckLength(); const btn=getEl('go'), st=getEl('status'); if(have<need){ btn.disabled=true; st.innerHTML='⚠️ Potřebuji alespoň <strong>'+need+'</strong> symbolů; aktuálně '+have+'.'; } else { btn.disabled=false; st.textContent='Připraveno.'; } }
+  ['files','size','free','deckSize'].forEach(id=> getEl(id).addEventListener('change', ()=>{ renderDeckPreview(); updateGoState(); }));
+
+  // Fallback čísla
+  function makeNumberIcon(n){
+    const hue=(n*47)%360, bg='hsl('+hue+' 80% 88%)', stroke='hsl('+hue+' 60% 55%)';
+    const svg = "<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><rect width='100%' height='100%' fill='white'/><circle cx='150' cy='150' r='110' fill='"+bg+"' stroke='"+stroke+"' stroke-width='10'/><text x='150' y='170' font-size='120' font-family='Inter,Arial' text-anchor='middle' fill='"+stroke+"' font-weight='700'>"+n+"</text></svg>";
+    return 'data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svg)));
+  }
+  function coverFitRect(sw,sh,dw,dh){ const s=Math.max(dw/sw, dh/sh); return {x:(dw-sw*s)/2,y:(dh-sh*s)/2,w:sw*s,h:sh*s}; }
+  async function filesToDataURLsOptimized(fileList){
+    const files = Array.from(fileList||[]), urls=[], target = IS_MOBILE ? 256 : (parseInt(getEl('stdSize').value,10)||300);
+    for(const f of files){
+      const data = await new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(f); });
+      try{ const img = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=data; });
+        const c=document.createElement('canvas'); c.width=target; c.height=target; const fit=coverFitRect(img.naturalWidth||img.width, img.naturalHeight||img.height, target, target);
+        const ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high'; ctx.clearRect(0,0,target,target); ctx.drawImage(img, fit.x, fit.y, fit.w, fit.h);
+        urls.push({src:c.toDataURL('image/png',0.9), name:f.name.replace(/\.[^.]+$/,'')+'_std'+target+'.png'});
+      }catch{ urls.push({src:data, name:f.name}); }
+    }
+    if(urls.length) log('Optimalizace uploadů: převedeno '+urls.length+' obrázků na '+target+'×'+target+'px PNG kvůli rychlosti.','good');
+    return urls;
+  }
+
+  // Bingo logika
+  function shuffle(arr, rng=Math.random){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); [arr[i],arr[j]]=[arr[j]]; } return arr; }
+  function makeCard(size, deckIds, freeCenter, rng){
+    const cells=size*size, ids=shuffle(deckIds.slice(), rng).slice(0, cells-(freeCenter?1:0));
+    const grid=[]; let k=0; for(let r=0;r<size;r++){ const row=[]; for(let c=0;c<size;c++){ if(freeCenter && r===Math.floor(size/2) && c===Math.floor(size/2)) row.push({id:-1, free:true}); else row.push({id:ids[k++], free:false}); } grid.push(row); } return grid;
+  }
+  function hasBingo(m, size){ for(let r=0;r<size;r++){ if(m[r].every(Boolean)) return true; } for(let c=0;c<size;c++){ let ok=true; for(let r=0;r<size;r++){ if(!m[r][c]){ok=false;break;} } if(ok) return true; } let ok=true; for(let i=0;i<size;i++){ if(!m[i][i]){ok=false;break;} } if(ok) return true; ok=true; for(let i=0;i<size;i++){ if(!m[i][size-1-i]){ok=false;break;} } return ok; }
+  function simulate(cards, order, size){ const marks=cards.map(card=>card.map(row=>row.map(cell=>cell.free?true:false))); const first=[]; for(let t=0;t<order.length;t++){ const sym=order[t]; for(let k=0;k<cards.length;k++){ const card=cards[k]; for(let r=0;r<size;r++) for(let c=0;c<size;c++){ const cell=card[r][c]; if(!cell.free && cell.id===sym){ marks[k][r][c]=true; } } } for(let k=0;k<cards.length;k++){ if(hasBingo(marks[k], size)) first.push({k,t}); } if(first.length){ const minT=Math.min(...first.map(x=>x.t)); const winners=first.filter(x=>x.t===minT).map(x=>x.k); return {t:minT,winners:new Set(winners)}; } } return {t:Infinity,winners:new Set()}; }
+  function ensureUniqueFirstWinner(cards, deckIds, rng, maxTries){ for(let i=1;i<=maxTries;i++){ const order=shuffle(deckIds.slice(), rng); const sim=simulate(cards, order, cards[0].length); if(sim.winners.size===1) return {order, firstAt:sim.t, winner:[...sim.winners][0], tries:i}; } return null; }
+
+  // Prefetch remote emoji to DataURL (fixes iOS image stalls)
+  async function toDataUrlIfRemote(src){
+    if(!src || src.startsWith('data:')) return src;
+    try{
+      const res = await fetch(src, {mode:'cors', cache:'force-cache'});
+      const blob = await res.blob();
+      return await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(blob); });
+    }catch(e){ console.warn('Prefetch selhal:', e); return src; }
+  }
+  async function normalizeDeckImages(deck){
+    for(const d of deck){ d.src = await toDataUrlIfRemote(d.src); }
+  }
+
+  // PDF render
+  async function renderCardToCanvas(cardGrid, deckMap, title){
+    const size = cardGrid.length;
+    const host = document.createElement('div'); host.className='bingo'; host.style.setProperty('--size', size);
+    host.innerHTML = '<header class="meta"><strong>'+title+'</strong><span>'+size+'×'+size+' obrázků</span></header><div class="board"></div>';
+    const board = host.querySelector('.board');
+    for(let r=0;r<size;r++){ for(let c=0;c<size;c++){ const cell=cardGrid[r][c]; const div=document.createElement('div'); div.className='cell'+(cell.free?' free':''); if(cell.free){ div.innerHTML='<div class="lbl">FREE</div>'; } else { const img=document.createElement('img'); img.src=deckMap.get(cell.id).src; img.alt=''; img.decoding='async'; div.appendChild(img); } board.appendChild(div);} }
+    host.style.position='absolute'; host.style.left='-99999px'; host.style.top='-99999px'; host.style.visibility='hidden'; document.body.appendChild(host);
+    const canvas = await html2canvas(host, {backgroundColor:'#ffffff', scale:RENDER_SCALE, useCORS:true, imageTimeout: 15000});
+    host.remove();
+    return canvas;
+  }
+
+  async function makeCardsPDF(cards, deck){
+    const { jsPDF } = window.jspdf; const pdf = new jsPDF({orientation:'portrait', unit:'pt', format:'a4'});
+    const deckMap = new Map(deck.map(d=>[d.id,d]));
+    for(let i=0;i<cards.length;i++){
+      const st=getEl('status'); if(st) st.textContent='Renderuji karty… '+(i+1)+'/'+cards.length;
+      // yield to UI + GC
+      await new Promise(requestAnimationFrame);
+      await new Promise(r=> setTimeout(r, IS_MOBILE ? 30 : 0));
+      const cv = await renderCardToCanvas(cards[i], deckMap, 'BINGO karta #'+(i+1));
+      const img = cv.toDataURL('image/jpeg', JPEG_QUALITY);
+      if(i>0) pdf.addPage();
+      pdf.addImage(img,'JPEG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+    }
+    return pdf;
+  }
+
+  async function makeCallsPDF(deck, order){
+    const { jsPDF } = window.jspdf; const pdf = new jsPDF({orientation:'portrait', unit:'pt', format:'a4'});
+    const pageW = pdf.internal.pageSize.getWidth();
+    const margin = 36; const cols = IS_MOBILE ? 3 : 4; const cellW = (pageW - margin*2 - (cols-1)*12)/cols; const cellH = IS_MOBILE ? 110 : 150;
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(18); pdf.text('Pořadí losování (call sheet)', margin, 32);
+    pdf.setFontSize(10); pdf.setFont('helvetica','normal'); pdf.text('Počet symbolů: '+order.length, margin, 48);
+    let x=margin, y=64, col=0; const rowGap=12;
+    for(let i=0;i<order.length;i++){
+      const idx=order[i], item=deck[idx];
+      const img=new Image(); img.src=item.src; await new Promise(res=>{ img.onload=res; img.onerror=res; });
+      const fmt = (item.src.startsWith('data:image/jpeg')||item.src.startsWith('data:image/jpg')) ? 'JPEG' : 'PNG';
+      pdf.addImage(img, fmt, x, y, cellW, cellH, undefined, 'FAST');
+      pdf.setFont('helvetica','bold'); pdf.setFontSize(12); pdf.text((i+1)+'.', x, y+cellH+12);
+      x += cellW + 12; col++; if(col===cols){ col=0; x=margin; y += cellH + 32 + rowGap; }
+      if(y+cellH+64>pdf.internal.pageSize.getHeight()){ pdf.addPage(); y=64; x=margin; col=0; }
+    }
+    return pdf;
+  }
+
+  // Hlavní generování
+  const els = { files:getEl('files'), players:getEl('players'), size:getEl('size'), free:getEl('free'), unique:getEl('unique'), seeded:getEl('seeded'), deckSize:getEl('deckSize'), status:getEl('status'), go:getEl('go'), dlCards:getEl('dlCards'), dlCalls:getEl('dlCalls'), stdBtn:getEl('standardizeUploads'), stdSize:getEl('stdSize') };
+  let lastPDFCards=null, lastPDFCalls=null;
+
+  els.go.addEventListener('click', async ()=>{
+    // kontrola
+    const required = computeRequiredCells();
+    const have = plannedDeckLength();
+    if(have<required){ updateGoState(); return; }
+
+    logBox.innerHTML=''; els.status.textContent = IS_MOBILE ? 'Generuji… (rychlý režim pro mobil)' : 'Generuji…';
+    els.go.disabled = true; els.dlCards.disabled = true; els.dlCalls.disabled = true;
+
+    const players = Math.max(1, Math.min(120, parseInt(els.players.value||'1',10)));
+    const size = parseInt(els.size.value,10);
+    const freeCenter = els.free.checked;
+    const uniqueFirst = els.unique.checked;
+    const wantDeckSize = parseInt(els.deckSize.value||'60',10);
+
+    const uploads = await filesToDataURLsOptimized(els.files.files);
+    const libItems = Array.from(GALLERY_SELECTED).map(hex=>({src: cpToUrl(hex), name: ''}));
+    const deck = (uploads.length || libItems.length)
+      ? uploads.concat(libItems).map((it,idx)=>({ id: idx, src: it.src, label: it.name || String(idx+1) }))
+      : Array.from({length: wantDeckSize}, (_,i)=>({ id:i, src: makeNumberIcon(i+1), label: String(i+1) }));
+
+    // 🔸 Nově: prefetch všech vzdálených emoji na data:URL (řeší zacyklení načítání na iOS)
+    await normalizeDeckImages(deck);
+
+    const cellsPerCard = size*size - (freeCenter?1:0);
+    if(deck.length < cellsPerCard){ els.status.textContent='Málo symbolů.'; els.go.disabled=false; return; }
+
+    const deckIds = deck.map(d=>d.id);
+    const cards=[]; for(let p=0;p<players;p++) cards.push(makeCard(size, deckIds, freeCenter, Math.random));
+
+    let order = shuffle(deckIds.slice(), Math.random);
+    if(uniqueFirst){
+      log('Hledám jedinečného vítěze… (limit '+UNIQUE_TRIES+')');
+      const attempt = ensureUniqueFirstWinner(cards, deckIds, Math.random, UNIQUE_TRIES);
+      if(attempt){ order=attempt.order; log('Hotovo: karta #'+(attempt.winner+1)+' po '+(attempt.firstAt+1)+'. tahu.','good'); }
+      else{ log('Nenašel jsem do limitu – ponechávám náhodné pořadí.','bad'); }
+    }
+
+    els.status.textContent = 'Renderuji PDF…';      
+    lastPDFCards = await makeCardsPDF(cards, deck);
+    lastPDFCalls = await makeCallsPDF(deck, order);
+    els.dlCards.disabled=false; els.dlCalls.disabled=false; els.go.disabled=false;
+    els.status.textContent='Hotovo – můžeš stáhnout PDF.';
+  });
+
+  // Standardizace nahraných (ručně)
+  getEl('standardizeUploads').addEventListener('click', async ()=>{
+    const s=parseInt(getEl('stdSize').value,10)|| (IS_MOBILE?256:300);
+    const dt = new DataTransfer(); const input=getEl('files'); if(!input.files||!input.files.length){ log('Žádné soubory ke sjednocení.','bad'); return; }
+    let ok=0, fail=0; for(const f of Array.from(input.files)){ try{ const data = await new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(f); }); const img=await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=data; }); const c=document.createElement('canvas'); c.width=s; c.height=s; const fit=coverFitRect(img.naturalWidth||img.width, img.naturalHeight||img.height, s, s); const ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high'; ctx.clearRect(0,0,s,s); ctx.drawImage(img,fit.x,fit.y,fit.w,fit.h); const blob=await new Promise(res=> c.toBlob(res, 'image/png', 0.92)); dt.items.add(new File([blob], f.name.replace(/\\.[^.]+$/,'')+'_std'+s+'.png', {type:'image/png'})); ok++; }catch(e){ console.warn(e); fail++; } } input.files = dt.files; log('Standardizace: '+ok+' ✓, '+fail+' ✗.','good'); renderDeckPreview(); updateGoState(); });
+
+  function init(){ renderGallery('all'); updateSelectionUI(); renderDeckPreview(); updateGoState(); }
+  if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', init); } else { init(); }
+  </script>
+</body>
+</html>
