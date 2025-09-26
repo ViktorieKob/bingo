@@ -20,6 +20,7 @@
     input[type="file"]{width:100%}
     .row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
     .btn{appearance:none;border:0;background:var(--primary);color:white;padding:.8rem 1rem;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn[disabled]{pointer-events:none;}
     .btn:disabled{opacity:.5;cursor:not-allowed}
     .btn.secondary{background:#111827;color:white}
     .btn.ghost{background:#e5e7eb;color:#111827}
@@ -67,6 +68,17 @@
       <div class="content">
         <label>Obrázky pro bingo (nahraj více souborů) – volitelné</label>
         <input id="files" type="file" accept="image/*" multiple />
+        <div class="row" style="margin-top:.4rem">
+          <button id="standardizeUploads" class="btn ghost" type="button">Sjednotit nahrané obrázky (čtvercové PNG)</button>
+          <label class="hint" style="margin:0 .4rem 0 0">Cílová velikost</label>
+          <select id="stdSize">
+            <option value="256">256 px</option>
+            <option value="300" selected>300 px</option>
+            <option value="512">512 px</option>
+          </select>
+          <span class="hint">Převede nahrané fotky na čtverec (cover), průhledné PNG – stejné měřítko jako ikony.</span>
+        </div>
+        <div id="stdStatus" class="hint" style="margin:.3rem 0 0 0"></div>
         <div class="hint">Když nic nenahraješ a nic nezaklikneš v knihovně, vytvoří se automaticky barevné očíslované ikony.</div>
 
         <label>Počet karet (hráčů)</label>
@@ -104,7 +116,7 @@
 
         <div class="divider"></div>
         <div class="row">
-          <button id="go" class="btn">Vygenerovat karty + pořadí (PDF)</button>
+          <button id="go" class="btn" disabled>Vygenerovat karty + pořadí (PDF)</button>
           <button id="dlCards" class="btn secondary" disabled>Stáhnout PDF karet</button>
           <button id="dlCalls" class="btn ghost" disabled>Stáhnout PDF s pořadím</button>
         </div>
@@ -137,14 +149,28 @@
           <label class="flex"><input name="cat" type="radio" value="sea"> Moře & oceán</label>
           <label class="flex"><input name="cat" type="radio" value="space"> Vesmír & fantasy</label>
         </div>
+        <div class="row" style="gap:.4rem;justify-content:flex-end">
+          <span class="hint" style="margin-right:auto">Tip: Tlačítka níže pracují s <strong>aktuálně zvolenou kategorií</strong>.</span>
+          <button id="selectShown" class="btn ghost" type="button">Vybrat zobrazené</button>
+          <button id="clearShown" class="btn ghost" type="button">Zrušit zobrazené</button>
+        </div>
         <div id="gallery" class="preview" style="margin-top:.8rem"></div>
         <div id="selSummary" class="hint" style="margin-top:.4rem">Vybráno: 0 ikon.</div>
         <details style="margin-top:.2rem"><summary>Zobrazit seznam vybraných</summary><div id="selList" class="hint"></div></details>
         <div class="divider"></div>
         <div class="row">
           <div class="flex"><input id="onlyLibrary" type="checkbox"><label for="onlyLibrary" style="margin:0">Použít <strong>jen</strong> vybrané z knihovny (ignorovat fallback)</label></div>
-          <button id="useSelected" class="btn" type="button">Přidat výběr do balíčku</button>
+          <span class="hint">Výběr z knihovny se počítá automaticky — tlačítko navíc není potřeba.</span>
         </div>
+      </div>
+    </section>
+
+    <!-- Přehled vybraných obrázků (balíček) -->
+    <section class="card">
+      <h2>Vybrané obrázky (balíček)</h2>
+      <div class="content">
+        <div class="hint">Zde uvidíš všechny <strong>aktuálně použité</strong> symboly pro generování: nahrané fotky + vybranou knihovnu (nebo fallback, pokud není nic vybráno). Pokud zaškrtneš „Pouze knihovna“, zobrazí se jen ona.</div>
+        <div id="deckPreview" class="preview" style="margin-top:.5rem; max-height:360px; overflow:auto"></div>
       </div>
     </section>
 
@@ -153,7 +179,6 @@
       <h2>Rychlý náhled & log</h2>
       <div class="content">
         <div id="status" class="hint">Připraveno.</div>
-        <div class="preview" id="preview" style="margin-top:.8rem"></div>
         <div class="divider"></div>
         <div class="log" id="log" aria-live="polite"></div>
       </div>
@@ -175,16 +200,6 @@
     let t = seed >>> 0; return function(){ t += 0x6D2B79F5; let r = Math.imul(t ^ t>>>15, 1 | t); r ^= r + Math.imul(r ^ r>>>7, 61 | r); return ((r ^ r>>>14) >>> 0) / 4294967296; };
   }
 
-  async function filesToDataURLs(fileList){
-    const files = Array.from(fileList||[]);
-    const urls = [];
-    for(const f of files){
-      const data = await new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(f); });
-      urls.push({src:data, name:f.name});
-    }
-    return urls;
-  }
-
   // Vytvoří barevné kruhové SVG s číslem (fallback když nejsou obrázky)
   function makeNumberIcon(n){
     const hue = (n*47) % 360; const bg = `hsl(${hue} 80% 88%)`; const stroke=`hsl(${hue} 60% 55%)`;
@@ -197,6 +212,70 @@
       <text x='150' y='170' font-size='120' font-family='Inter,Arial,Segoe UI,sans-serif' text-anchor='middle' fill='${stroke}' font-weight='700'>${n}</text>
     </svg>`;
     return 'data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svg)));
+  }
+
+  /*================= Pomocné kreslení / standardizace ================*/
+  function coverFitRect(srcW, srcH, dstW, dstH){
+    const scale = Math.max(dstW/srcW, dstH/srcH);
+    const w = srcW*scale, h = srcH*scale;
+    const x = (dstW - w)/2, y = (dstH - h)/2;
+    return {x,y,w,h,scale};
+  }
+  async function blobFromCanvas(canvas, type='image/png', quality=0.92){
+    return await new Promise(res=> canvas.toBlob(res, type, quality));
+  }
+  async function standardizeInputFiles(targetSize){
+    const input = els.files; const btn = els.stdBtn; const statusEl = document.getElementById('stdStatus');
+    if(!input || !input.files || !input.files.length){ log('Nebyly nahrány žádné soubory – není co standardizovat.', 'bad'); if(statusEl){ statusEl.textContent='Žádné nahrané soubory.'; statusEl.className='hint bad'; } return; }
+    const dt = new DataTransfer();
+    let ok=0, fail=0, i=0; const total=input.files.length;
+    if(btn){ btn.disabled=true; btn.setAttribute('disabled',''); btn.textContent=`Sjednocuji… (0/${total})`; }
+    if(statusEl){ statusEl.textContent='Probíhá standardizace…'; statusEl.className='hint'; }
+    for(const f of Array.from(input.files)){
+      i++;
+      try{
+        const data = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); });
+        const img = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=data; });
+        const canvas = document.createElement('canvas'); canvas.width=targetSize; canvas.height=targetSize;
+        const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,targetSize,targetSize);
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality='high';
+        const fit = coverFitRect(img.naturalWidth||img.width, img.naturalHeight||img.height, targetSize, targetSize);
+        ctx.drawImage(img, fit.x, fit.y, fit.w, fit.h);
+        const blob = await blobFromCanvas(canvas, 'image/png', 0.92);
+        const newName = (f.name.replace(/\.[^.]+$/,'') + `_std${targetSize}.png`);
+        dt.items.add(new File([blob], newName, {type:'image/png'}));
+        ok++;
+      }catch(e){ console.error(e); fail++; }
+      if(btn){ btn.textContent=`Sjednocuji… (${i}/${total})`; }
+    }
+    input.files = dt.files;
+    if(btn){ btn.disabled=false; btn.removeAttribute('disabled'); btn.textContent='Sjednotit nahrané obrázky (čtvercové PNG)'; }
+    log(`Standardizace dokončena: ${ok} ✓, ${fail} ✗. Velikost: ${targetSize}×${targetSize}px, PNG.`, fail? 'bad':'good');
+    if(statusEl){ statusEl.textContent = `Hotovo: ${ok} ✓, ${fail} ✗ (velikost ${targetSize}×${targetSize}px, PNG).`; statusEl.className = 'hint ' + (fail? 'bad':'good'); }
+    if(typeof updateDeckInfo==='function') updateDeckInfo();
+    if(typeof renderDeckPreview==='function') renderDeckPreview();
+    if(typeof updateGoState==='function') updateGoState();
+  }
+
+  /*================= AUTO-OPTIMALIZACE UPLOADŮ (rychlé PDF) ================*/
+  async function filesToDataURLsOptimized(fileList){
+    const files = Array.from(fileList||[]);
+    const urls = [];
+    const target = parseInt((window.els && els.stdSize && els.stdSize.value) || '300', 10);
+    for(const f of files){
+      const data = await new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(f); });
+      try{
+        const img = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=data; });
+        const canvas = document.createElement('canvas'); canvas.width=target; canvas.height=target;
+        const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,target,target); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+        const fit = coverFitRect(img.naturalWidth||img.width, img.naturalHeight||img.height, target, target);
+        ctx.drawImage(img, fit.x, fit.y, fit.w, fit.h);
+        const out = canvas.toDataURL('image/png', 0.92);
+        urls.push({src: out, name: (f.name.replace(/\.[^.]+$/,'') + `_std${target}.png`)});
+      }catch(e){ console.warn('Standardizace selhala, používám originál:', f.name, e); urls.push({src:data, name:f.name}); }
+    }
+    if(urls.length){ log(`Optimalizace uploadů: převedeno ${urls.length} obrázků na ${target}×${target}px PNG kvůli rychlosti.`, 'good'); }
+    return urls;
   }
 
   /******************** Bingo logika ********************/
@@ -283,7 +362,7 @@
         const div = document.createElement('div'); div.className='cell'+(cell.free?' free':'');
         if(cell.free){ div.innerHTML = '<div class="lbl">FREE</div>'; }
         else{
-          const img = document.createElement('img'); img.src = deckMap.get(cell.id).src; img.alt = deckMap.get(cell.id).label || ''; img.crossOrigin='anonymous';
+          const img = document.createElement('img'); img.src = deckMap.get(cell.id).src; img.alt = deckMap.get(cell.id).label || ''; img.crossOrigin='anonymous'; img.decoding='async';
           div.appendChild(img);
         }
         board.appendChild(div);
@@ -299,8 +378,10 @@
     const { jsPDF } = window.jspdf; const pdf = new jsPDF({orientation:'portrait', unit:'pt', format:'a4'});
     const deckMap = new Map(deck.map(d=>[d.id,d]));
     for(let i=0;i<cards.length;i++){
+      if(window.els && els.status){ els.status.textContent = `Renderuji karty… ${i+1}/${cards.length}`; }
+      await new Promise(r=> setTimeout(r, 0));
       const cv = await renderCardToCanvas(cards[i], deckMap, `BINGO karta #${i+1}`);
-      const img = cv.toDataURL('image/jpeg', 0.92);
+      const img = cv.toDataURL('image/jpeg', 0.9);
       if(i>0) pdf.addPage();
       pdf.addImage(img,'JPEG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
     }
@@ -318,7 +399,8 @@
     for(let i=0;i<order.length;i++){
       const idx = order[i]; const item = deck[idx];
       const img = new Image(); img.crossOrigin='anonymous'; img.src = item.src; await new Promise(res=>{ img.onload=res; img.onerror=res; });
-      pdf.addImage(img, 'PNG', x, y, cellW, cellH, undefined, 'FAST');
+      const fmt = (item.src && (item.src.startsWith('data:image/jpeg') || item.src.startsWith('data:image/jpg'))) ? 'JPEG' : 'PNG';
+      pdf.addImage(img, fmt, x, y, cellW, cellH, undefined, 'FAST');
       pdf.setFont('helvetica','bold'); pdf.setFontSize(12); pdf.text(`${i+1}.`, x, y+cellH+12);
       pdf.setFont('helvetica','normal'); pdf.text(item.label?String(item.label):`ID ${idx}`, x+22, y+cellH+12);
 
@@ -341,16 +423,31 @@
     seeded: document.getElementById('seeded'),
     deckSize: document.getElementById('deckSize'),
     status: document.getElementById('status'),
-    preview: document.getElementById('preview'),
     go: document.getElementById('go'),
     dlCards: document.getElementById('dlCards'),
     dlCalls: document.getElementById('dlCalls'),
+    stdBtn: document.getElementById('standardizeUploads'),
+    stdSize: document.getElementById('stdSize'),
   };
 
   let lastPDFCards = null, lastPDFCalls = null;
 
   els.go.addEventListener('click', async ()=>{
-    logBox.innerHTML=''; els.preview.innerHTML=''; els.status.textContent='Generuji…';
+    // PŘEDBĚŽNÁ KONTROLA: bez dostatku vybraných symbolů ani nezačínej
+    const requiredPre = ( ()=>{ const size=parseInt(els.size.value,10); const freeCenter=els.free.checked; return size*size - (freeCenter?1:0);} )();
+    const onlyLibElPre = document.getElementById('onlyLibrary');
+    const onlyLibPre = !!(onlyLibElPre && onlyLibElPre.checked);
+    const libNPre = (window.GALLERY_SELECTED && window.GALLERY_SELECTED.size) || 0;
+    const upNPre = (els.files && els.files.files && els.files.files.length) || 0;
+    const havePre = onlyLibPre ? libNPre : (upNPre + libNPre);
+    if(havePre < requiredPre){
+      els.status.innerHTML = `❌ Potřebuji alespoň <strong>${requiredPre}</strong> symbolů; aktuálně máš ${havePre}. Vyber víc obrázků (nebo z knihovny).`;
+      log('Nedostatek symbolů – generování zablokováno.', 'bad');
+      if(typeof updateGoState==='function') updateGoState();
+      return;
+    }
+
+    logBox.innerHTML=''; els.status.textContent='Generuji…';
     els.go.disabled = true; els.dlCards.disabled = true; els.dlCalls.disabled = true;
 
     const players = Math.max(1, Math.min(120, parseInt(els.players.value||'1',10)));
@@ -360,8 +457,8 @@
     const wantDeckSize = parseInt(els.deckSize.value||'60',10);
     const rng = els.seeded.checked ? seededRNG(123456789) : Math.random;
 
-    // Načti obrázky (pokud jsou)
-    const uploads = await filesToDataURLs(els.files.files);
+    // Načti a AUTO-OPTIMALIZUJ obrázky (pokud jsou)
+    const uploads = await filesToDataURLsOptimized(els.files.files);
     const deck = buildDeck(uploads, wantDeckSize);
 
     const cellsPerCard = size*size - (freeCenter?1:0);
@@ -392,24 +489,6 @@
       const sim = simulate(cards, result.order, size);
       result.firstAt = sim.t; result.winner = sim.winners.size? [...sim.winners][0] : null;
       log(`Bez vynucení: první výhra nastane na ${sim.t===Infinity?'nikdy':(sim.t+1+'. tahu')}. Počet prvních vítězů: ${sim.winners.size}.`);
-    }
-
-    // Rychlý náhled prvních 3 karet
-    const deckMap = new Map(deck.map(d=>[d.id,d]));
-    const show = Math.min(3, cards.length);
-    for(let i=0;i<show;i++){
-      const mini = document.createElement('div'); mini.className='thumb'; mini.innerHTML = `<strong>Karta #${i+1}</strong><div class='hint'>Náhled struktury (bez měřítka)</div>`;
-      const tbl = document.createElement('table'); tbl.style.width='100%'; tbl.style.borderCollapse='collapse';
-      for(const row of cards[i]){
-        const tr=document.createElement('tr');
-        for(const cell of row){
-          const td=document.createElement('td'); td.style.border='1px solid #e5e7eb'; td.style.padding='2px'; td.style.height='40px'; td.style.textAlign='center';
-          td.textContent = cell.free ? 'FREE' : (deckMap.get(cell.id).label || '');
-          tr.appendChild(td);
-        }
-        tbl.appendChild(tr);
-      }
-      mini.appendChild(tbl); els.preview.appendChild(mini);
     }
 
     // Vytvoř PDF soubory
@@ -447,8 +526,12 @@
     // VESMÍR & FANTASY
     ['Mimozemšťan','1f47d','space'],['Příšerka','1f47e','space'],['Robot','1f916','space'],['Planeta s prstenci','1fa90','space'],['Zářící hvězda','1f31f','space'],['Raketa','1f680','space']
   ];
+  // zpřístupni do window pro jiné skripty
+  window.EMOJI_LIBRARY = EMOJI_LIBRARY;
   const CDN_BASE = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/';
   const cpToUrl = (hex)=> CDN_BASE + hex.toLowerCase() + '.png';
+  // zpřístupni resolver do window
+  window.cpToUrl = cpToUrl;
 
   const galleryEl = document.getElementById('gallery');
   const deckInfoEl = document.getElementById('deckInfo');
@@ -457,10 +540,30 @@
   const filterRadios = Array.from(document.querySelectorAll('input[name="cat"]'));
   const selectAllBtn = document.getElementById('selectAll');
   const clearAllBtn = document.getElementById('clearAll');
-  const useSelectedBtn = document.getElementById('useSelected');
+  const selectShownBtn = document.getElementById('selectShown');
+  const clearShownBtn = document.getElementById('clearShown');
   const onlyLibraryChk = document.getElementById('onlyLibrary');
 
   let GALLERY_SELECTED = new Set();
+  
+  // --- Mobilní kompatibilita helpery (bez optional chaining) ---
+  function getCheckedCat(){
+    var el = document.querySelector('input[name="cat"]:checked');
+    return (el && el.value) ? el.value : 'all';
+  }
+  function labelFromHex(hex){
+    for(var i=0;i<EMOJI_LIBRARY.length;i++){ if(EMOJI_LIBRARY[i][1]===hex) return EMOJI_LIBRARY[i][0]; }
+    return '';
+  }
+  function filesCount(){
+    var el = document.getElementById('files');
+    return (el && el.files && el.files.length) ? el.files.length : 0;
+  }
+  function gallerySize(){
+    return (window.GALLERY_SELECTED && typeof window.GALLERY_SELECTED.size==='number') ? window.GALLERY_SELECTED.size : 0;
+  }
+  // ulož referenci do window, aby ji viděly i jiné <script>
+  window.GALLERY_SELECTED = GALLERY_SELECTED;
   let LIB_ITEMS = []; // {label, src, cat, hex}
 
   function renderGallery(filter='all'){
@@ -473,7 +576,7 @@
       const img = document.createElement('img'); img.src = it.src; img.alt = it.label; img.loading='lazy'; img.style.maxHeight='120px';
       const chk = document.createElement('input'); chk.type='checkbox'; chk.style.marginTop='.5rem'; chk.checked = GALLERY_SELECTED.has(it.hex);
       const cap = document.createElement('div'); cap.className='hint'; cap.textContent = it.label;
-      chk.addEventListener('change', ()=>{ if(chk.checked) GALLERY_SELECTED.add(it.hex); else GALLERY_SELECTED.delete(it.hex); updateSelectionUI(); });
+      chk.addEventListener('change', ()=>{ if(chk.checked) GALLERY_SELECTED.add(it.hex); else GALLERY_SELECTED.delete(it.hex); updateSelectionUI(); updateDeckInfo(); renderDeckPreview(); updateGoState(); });
       wrap.addEventListener('click', (e)=>{ if(e.target!==chk){ chk.checked=!chk.checked; chk.dispatchEvent(new Event('change')); } });
       wrap.appendChild(img); wrap.appendChild(cap); wrap.appendChild(chk); galleryEl.appendChild(wrap);
     }
@@ -482,28 +585,31 @@
     const count = GALLERY_SELECTED.size;
     selSummaryEl.textContent = `Vybráno: ${count} ikon.`;
     if(count){
-      const names = Array.from(GALLERY_SELECTED).map(hex=> EMOJI_LIBRARY.find(e=>e[1]===hex)?.[0] || hex);
+      const names = Array.from(GALLERY_SELECTED).map(hex=> labelFromHex(hex) || hex);
       selListEl.textContent = names.join(', ');
     } else {
       selListEl.textContent = '';
     }
+    // synchronizace do window pro ostatní skripty
+    window.GALLERY_SELECTED = GALLERY_SELECTED;
     deckInfoEl.textContent = count ? `Balíček z knihovny: ${count} ikon.` : '';
   }
 
   filterRadios.forEach(r=> r.addEventListener('change', ()=>{
-    const val = document.querySelector('input[name="cat"]:checked')?.value || 'all';
+    const val = getCheckedCat();
     renderGallery(val);
   }));
 
-  selectAllBtn.addEventListener('click', ()=>{ EMOJI_LIBRARY.forEach(([,hex])=>GALLERY_SELECTED.add(hex)); renderGallery(document.querySelector('input[name="cat"]:checked')?.value||'all'); updateSelectionUI(); });
-  clearAllBtn.addEventListener('click', ()=>{ GALLERY_SELECTED.clear(); renderGallery(document.querySelector('input[name="cat"]:checked')?.value||'all'); updateSelectionUI(); });
+  selectAllBtn.addEventListener('click', ()=>{ EMOJI_LIBRARY.forEach(([,hex])=>GALLERY_SELECTED.add(hex)); renderGallery(getCheckedCat()); updateSelectionUI(); updateDeckInfo(); renderDeckPreview(); updateGoState(); });
+  clearAllBtn.addEventListener('click', ()=>{ GALLERY_SELECTED.clear(); renderGallery(getCheckedCat()); updateSelectionUI(); updateDeckInfo(); renderDeckPreview(); updateGoState(); });
 
-  // Přidání vybraných do balíčku (použije se při generování)
-  useSelectedBtn.addEventListener('click', ()=>{
-    if(!GALLERY_SELECTED.size){ log('Nejsou vybrané žádné položky z knihovny.', 'bad'); return; }
-    log(`Vybráno z knihovny: ${GALLERY_SELECTED.size} ikon.`,'good');
-    updateSelectionUI();
-  });
+  // Hromadné operace pro aktuální kategorii
+  function currentFilter(){ const r=document.querySelector('input[name="cat"]:checked'); return (r && r.value) ? r.value : 'all'; }
+  function itemsFor(cat){ return EMOJI_LIBRARY.filter(e=> cat==='all' ? true : e[2]===cat).map(e=>e[1]); }
+  function selectInCategory(cat){ itemsFor(cat).forEach(hex=> GALLERY_SELECTED.add(hex)); renderGallery(currentFilter()); updateSelectionUI(); updateDeckInfo(); renderDeckPreview(); updateGoState(); }
+  function clearInCategory(cat){ itemsFor(cat).forEach(hex=> GALLERY_SELECTED.delete(hex)); renderGallery(currentFilter()); updateSelectionUI(); updateDeckInfo(); renderDeckPreview(); updateGoState(); }
+  if(selectShownBtn) selectShownBtn.addEventListener('click', ()=>{ selectInCategory(currentFilter()); });
+  if(clearShownBtn) clearShownBtn.addEventListener('click', ()=>{ clearInCategory(currentFilter()); });
 
   // Překryj buildDeck tak, aby uměl KOMBINOVAT uploady + knihovnu (pokud není zaškrtnuto onlyLibrary)
   const _origBuildDeck = buildDeck;
@@ -513,12 +619,12 @@
 
     // Jen knihovna (forced)
     if(onlyLibraryChk.checked && libCount){
-      return Array.from(GALLERY_SELECTED).map((hex,idx)=>({ id: idx, src: cpToUrl(hex), label: EMOJI_LIBRARY.find(e=>e[1]===hex)?.[0] || ('#'+(idx+1)) }));
+      return Array.from(GALLERY_SELECTED).map((hex,idx)=>({ id: idx, src: cpToUrl(hex), label: labelFromHex(hex) || ('#'+(idx+1)) }));
     }
 
     // Kombinace: uploady + knihovna
     if(uploads.length || libCount){
-      const libItems = Array.from(GALLERY_SELECTED).map((hex)=>({ src: cpToUrl(hex), label: EMOJI_LIBRARY.find(e=>e[1]===hex)?.[0] || '' }));
+      const libItems = Array.from(GALLERY_SELECTED).map((hex)=>({ src: cpToUrl(hex), label: labelFromHex(hex) || '' }));
       const merged = [...uploads, ...libItems].map((it,idx)=>({ id: idx, src: it.src, label: it.name || it.label || String(idx+1) }));
       return merged;
     }
@@ -529,7 +635,7 @@
 
   // Souhrn balíčku v UI (uploady + knihovna)
   function updateDeckInfo(){
-    const up = (document.getElementById('files')?.files?.length) || 0;
+    const up = (filesCount()) || 0;
     const lib = GALLERY_SELECTED.size || 0;
     const total = (onlyLibraryChk.checked ? lib : up + lib);
     deckInfoEl.textContent = total ? `Balíček připraven: ${total} ikon (nahrané: ${up}, knihovna: ${lib}${onlyLibraryChk.checked?', pouze knihovna':''}).` : '';
@@ -541,11 +647,86 @@
     if(onlyLibraryChk.checked && GALLERY_SELECTED.size){ deckSizeInput.value = String(GALLERY_SELECTED.size); }
   }, {capture:true});
 
-  // První render galerie + UI souhrn
-  document.getElementById('files').addEventListener('change', updateDeckInfo);
-  onlyLibraryChk.addEventListener('change', updateDeckInfo);
+  // ====== Náhled balíčku + blokace tlačítka, pokud je nedostatek symbolů ======
+  function computeRequiredCells(){
+    const size = parseInt(document.getElementById('size').value, 10);
+    const free = document.getElementById('free').checked;
+    return size*size - (free?1:0);
+  }
+  function getUploadsForPreview(){
+    const input = document.getElementById('files');
+    return Array.from(input.files||[]).map(f=>({src: URL.createObjectURL(f), label: f.name, _src:'upload'}));
+  }
+  function getLibForPreview(){
+    return Array.from(window.GALLERY_SELECTED||[]).map(hex=>({
+      src: (typeof cpToUrl === 'function' ? cpToUrl(hex) : ''),
+      label: labelFromHex(hex) || '',
+      _src:'lib'
+    }));
+  }
+  function buildPreviewDeck(){
+    const onlyLib = document.getElementById('onlyLibrary').checked;
+    const uploads = getUploadsForPreview();
+    const lib = getLibForPreview();
+    if(onlyLib){ return lib; }
+    if(uploads.length || lib.length){ return [...uploads, ...lib]; }
+    // fallback (pouze pro náhled; pro povolení tlačítka se fallback NEpočítá)
+    const n = Math.max(parseInt(document.getElementById('deckSize').value||'24',10), 0);
+    return Array.from({length:n}, (_,i)=>({src: (typeof makeNumberIcon==='function'? makeNumberIcon(i+1):''), label: String(i+1), _src:'fallback'}));
+  }
+  function plannedDeckLength(){
+    const onlyLib = document.getElementById('onlyLibrary').checked;
+    const uploadsN = (filesCount()) || 0;
+    const libN = (gallerySize()) || 0;
+    // Pro povolení tlačítka IGNORUJEME fallback – vyžadujeme skutečný výběr
+    return onlyLib ? libN : (uploadsN + libN);
+  }
+  function renderDeckPreview(){
+    const host = document.getElementById('deckPreview'); if(!host) return;
+    const deck = buildPreviewDeck();
+    host.innerHTML = '';
+    deck.forEach((it,idx)=>{
+      const wrap = document.createElement('div'); wrap.className='thumb';
+      const img = document.createElement('img'); img.src = it.src; img.alt = it.label||('Symbol '+(idx+1)); img.loading='lazy'; img.style.maxHeight='120px';
+      const cap = document.createElement('div'); cap.className='hint'; cap.textContent = it.label || ('#'+(idx+1));
+      wrap.appendChild(img); wrap.appendChild(cap); host.appendChild(wrap);
+    });
+  }
+  function updateGoState(){
+    const required = computeRequiredCells();
+    const have = plannedDeckLength();
+    const goBtn = document.getElementById('go');
+    const status = document.getElementById('status');
+    if(!goBtn) return;
+    const lock = (msg)=>{ goBtn.disabled = true; goBtn.setAttribute('disabled',''); goBtn.style.pointerEvents='none'; if(status) status.innerHTML = msg; };
+    const unlock = ()=>{ goBtn.disabled = false; goBtn.removeAttribute('disabled'); goBtn.style.pointerEvents=''; if(status && (!window.lastPDFCards && !window.lastPDFCalls)) status.textContent = 'Připraveno.'; };
+    if(have < required){
+      lock(`⚠️ Potřebuji alespoň <strong>${required}</strong> symbolů; aktuálně máš ${have}. Vyber víc obrázků (nebo z knihovny).`);
+    } else {
+      unlock();
+    }
+  }
+
+  // Rozšiř testovací/aktuální UI volání – obalíme updateSelectionUI, aby vždy přegenerovalo i náhled + stav tlačítka
+  if(typeof window.updateSelectionUI === 'function'){
+    const _origUpdateSelectionUI = window.updateSelectionUI;
+    window.updateSelectionUI = function(){ _origUpdateSelectionUI(); try{ if(typeof updateDeckInfo==='function') updateDeckInfo(); }catch(e){} renderDeckPreview(); updateGoState(); };
+  }
+
+  // Globální posluchače pro přepočty
+  document.getElementById('size').addEventListener('change', ()=>{ renderDeckPreview(); updateGoState(); });
+  document.getElementById('free').addEventListener('change', ()=>{ renderDeckPreview(); updateGoState(); });
+  document.getElementById('deckSize').addEventListener('input', ()=>{ renderDeckPreview(); updateGoState(); });
+  document.getElementById('onlyLibrary').addEventListener('change', ()=>{ renderDeckPreview(); updateGoState(); });
+  document.getElementById('files').addEventListener('change', ()=>{ renderDeckPreview(); updateGoState(); updateDeckInfo(); });
+  if(els.stdBtn){ els.stdBtn.addEventListener('click', async ()=>{ const s=parseInt(els.stdSize?.value||'300',10); await standardizeInputFiles(s); }); }
+
+  // První vykreslení
   renderGallery('all');
   updateSelectionUI();
+  updateDeckInfo();
+  renderDeckPreview();
+  updateGoState();
 
   /******************** Samotesty (rychlé runtime testy) ********************/
   (function runSelfTests(){
@@ -558,7 +739,25 @@
     const d=buildDeck([],24); assert('buildDeck fallback ≥ požadavek', d.length>=24);
     // 4) Vytvoření karty – velikost mřížky
     const ids=d.map(x=>x.id); const card=makeCard(3,ids,false,Math.random); assert('makeCard 3×3 má 9 buněk', card.flat().length===9);
+    // 5) Kombinace uploady + knihovna (bez onlyLibrary)
+    const prevSel = Array.from(GALLERY_SELECTED); GALLERY_SELECTED.clear(); GALLERY_SELECTED.add('1f431'); GALLERY_SELECTED.add('1f436');
+    const fakeUploads=[{src:'data:,A',name:'a.png'},{src:'data:,B',name:'b.png'}];
+    const merged = buildDeck(fakeUploads, 10); assert('buildDeck kombinuje uploady + knihovnu', merged.length===4);
+    // 6) plannedDeckLength ignoruje fallback
+    const oldDeckVal = document.getElementById('deckSize').value; document.getElementById('deckSize').value = '60';
+    const haveSel = plannedDeckLength(); assert('plannedDeckLength bez výběru = počet vybraných', haveSel=== (document.getElementById('files').files.length + GALLERY_SELECTED.size));
+    document.getElementById('deckSize').value = oldDeckVal; // restore
+    // 7) Výběr kategorií – select/clear pro 'animals'
+    const animalsCount = EMOJI_LIBRARY.filter(e=>e[2]==='animals').length;
+    clearInCategory('animals'); const base = GALLERY_SELECTED.size;
+    selectInCategory('animals'); assert('selectInCategory(animals) přidá všechna zvířata', GALLERY_SELECTED.size === base + animalsCount);
+    clearInCategory('animals'); assert('clearInCategory(animals) odebere všechna zvířata', GALLERY_SELECTED.size === base);
+    // 8) coverFitRect – sanity pro 200×100 → 300×300
+    const fit = coverFitRect(200,100,300,300); assert('coverFitRect center-cover', Math.round(fit.w)===600 && Math.round(fit.h)===300 && Math.round(fit.x)===-150 && Math.round(fit.y)===0);
+    // restore původního výběru
+    GALLERY_SELECTED.clear(); prevSel.forEach(x=>GALLERY_SELECTED.add(x)); updateSelectionUI();
   })();
   </script>
-</body>
-</html>
+
+  <script>
+    // Jistá inicializace po načtení DOMu
