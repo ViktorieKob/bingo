@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Obrázkové Bingo – generátor karet + pořadí losování (PDF)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Moderní font (Google Fonts) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --accent: #10b981;
+      --danger: #ef4444;
+      --muted: #6b7280;
+      --bg: #eef2f7;
+      --card-bg: #fff;
+      --shadow: 0 4px 24px rgba(0,0,0,.09);
+      --radius: 18px;
+    }
+    *{box-sizing:border-box; margin:0; padding:0;}
+    body {
+      font-family: 'Inter', system-ui, Arial, sans-serif;
+      background: var(--bg);
+      color: #17223b;
+      line-height: 1.5;
+    }
+    header {
+      padding: 2rem 0 1rem 0;
+      background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%);
+      color: #fff;
+      box-shadow: var(--shadow);
+      border-bottom-left-radius: var(--radius);
+      border-bottom-right-radius: var(--radius);
+    }
+    h1 {
+      font-size: 2.1rem;
+      font-weight: 700;
+      margin-bottom: .5rem;
+      letter-spacing: -.03em;
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1rem 1rem 1rem;
+    }
+    .hint {
+      font-size: 1rem;
+      color: var(--muted);
+      margin-bottom: .5rem;
+    }
+    .pill {
+      background: var(--card-bg);
+      color: var(--primary);
+      font-weight: 600;
+      padding: .25rem .7rem;
+      border-radius: 999px;
+      font-size: 1rem;
+      margin-left: .5rem;
+      box-shadow: 0 1px 6px rgba(0,0,0,.10);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 2rem;
+      margin-top: 1.5rem;
+    }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      .wrap { padding: 1rem; }
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: none;
+      padding-bottom: 1rem;
+      transition: box-shadow .2s;
+      display: flex;
+      flex-direction: column;
+      min-height: 380px;
+    }
+    .card:hover { box-shadow: 0 8px 32px rgba(37,99,235,.13); }
+    .card h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0;
+      padding: 1.2rem 1.2rem .7rem 1.2rem;
+      color: var(--primary);
+      border-radius: var(--radius) var(--radius) 0 0;
+      background: linear-gradient(90deg,#eef2ff 0%,#e0fff3 100%);
+      border-bottom: 2px solid #f1f5f9;
+      box-shadow: 0 2px 6px rgba(0,0,0,.02);
+    }
+    .card .content {
+      padding: 1.2rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: .6rem;
+    }
+    label {
+      display: block;
+      font-size: 1.05rem;
+      font-weight: 500;
+      margin-top: .8rem;
+      margin-bottom: .2rem;
+      color: #1e293b;
+    }
+    input[type="number"], select {
+      width: 100%;
+      padding: .7rem 1rem;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 12px;
+      background: #f9fafb;
+      font-size: 1.1rem;
+      margin-bottom: .2rem;
+      transition: border .2s;
+    }
+    input[type="number"]:focus, select:focus {
+      border-color: var(--primary);
+      outline: none;
+    }
+    input[type="checkbox"] {
+      transform: scale(1.2);
+      accent-color: var(--primary);
+      margin-right: .6rem;
+    }
+    input[type="file"] {
+      width: 100%;
+      margin-bottom: .7rem;
+    }
+    .row {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      appearance: none;
+      border: 0;
+      background: var(--primary);
+      color: #fff;
+      padding: .9rem 1.3rem;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      cursor: pointer;
+      transition: background .15s, box-shadow .15s;
+      box-shadow: 0 2px 10px rgba(37,99,235,.08);
+      margin-top: .2rem;
+    }
+    .btn[disabled] {
+      pointer-events: none;
+      opacity: .5;
+      cursor: not-allowed;
+    }
+    .btn.secondary { background: var(--accent); color: #fff; }
+    .btn.ghost { background: #e5e7eb; color: #2563eb; }
+    .btn:hover:not([disabled]) { background: #1742b4; }
+    .divider {
+      height: 2px;
+      background: #e5e7eb;
+      margin: .8rem 0;
+      border-radius: 2px;
+    }
+    .preview {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px,1fr));
+      gap: 10px;
+      margin-bottom: .5rem;
+    }
+    .thumb {
+      border: 2px solid #e0e7ef;
+      border-radius: 14px;
+      padding: .6rem;
+      background: #f4f8ff;
+      text-align: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+      transition: border .2s;
+    }
+    .thumb img {
+      max-width: 100%;
+      max-height: 110px;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .thumb:hover { border-color: var(--primary); }
+    .flex { display: flex; gap: .7rem; align-items: center; }
+    .log {
+      font-family: 'Roboto Mono', monospace;
+      background: #f9fafb;
+      color: #374151;
+      border-radius: 12px;
+      padding: 1rem;
+      overflow: auto;
+      max-height: 200px;
+      font-size: .98rem;
+      margin-bottom: .2rem;
+    }
+    .good { color: var(--accent); }
+    .bad { color: var(--danger); }
+    footer {
+      padding: 2rem 0 1rem 0;
+      color: var(--muted);
+      text-align: center;
+      font-size: 1.05rem;
+      background: #f1f5f9;
+      margin-top: 2rem;
+      border-top-left-radius: var(--radius);
+      border-top-right-radius: var(--radius);
+      box-shadow: 0 -2px 12px rgba(0,0,0,.05);
+    }
+    /* Bingo karta render */
+    .bingo {
+      width: 794px;
+      height: 1123px; /* A4 @ ~96dpi */
+      background: white;
+      border: 2px solid #e5e7eb;
+      border-radius: 20px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(37,99,235,.08);
+    }
+    .bingo header {
+      box-shadow: none;
+      position: static;
+      border-bottom: 2px solid #e5e7eb;
+      background: #f1f5ff;
+      color: var(--primary);
+      font-weight: 600;
+      padding: 1rem 1.5rem;
+      font-size: 1.25rem;
+    }
+    .bingo .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: .6rem 1rem;
+      color: #374151;
+    }
+    .board {
+      flex: 1;
+      display: grid;
+      gap: 8px;
+      padding: 16px 28px 28px 28px;
+      grid-template-rows: repeat(var(--size),1fr);
+      grid-template-columns: repeat(var(--size),1fr);
+    }
+    .cell {
+      border: 2px solid #e5e7eb;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      padding: 8px;
+      background: #f7fbff;
+      transition: border .2s;
+    }
+    .cell img { max-width: 100%; max-height: 100%; }
+    .cell .lbl { font-size: 28px; }
+    .free {
+      background: rgba(16,185,129,.15);
+      border: 2px dashed var(--accent);
+    }
+    /* Animace pro interaktivní prvky */
+    .btn, .card, .thumb, .cell { transition: box-shadow .2s, border .2s, background .2s; }
+    /* Lepší responsivita */
+    @media (max-width: 600px) {
+      .wrap { padding: .2rem; }
+      .card { padding: 0; }
+      .card .content { padding: .7rem; }
+      .grid { gap: 1rem; }
+      .bingo { width: 100vw; min-width: 100vw; height: auto; }
+    }
+    /* Malé tipy */
+    .hint strong { color: var(--primary); }
+    /* Pro rozdělení sekcí */
+    section.card:not(:last-child) { margin-bottom: 1.5rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>
+        <span style="vertical-align:middle;">🎲</span> Obrázkové Bingo
+        <span class="pill">offline v prohlížeči</span>
+      </h1>
+      <div class="hint">
+        Na mobilech běží automaticky <strong>rychlý režim</strong> kvůli paměti a rychlosti; na PC plná kvalita.
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap grid">
+    <!-- Ovládání -->
+    <section class="card">
+      <h2><span style="vertical-align:middle;">⚙️</span> Nastavení</h2>
+      <div class="content">
+        <label>Obrázky pro bingo (nahraj více souborů) – volitelné</label>
+        <input id="files" type="file" accept="image/*" multiple />
+        <div class="row">
+          <button id="standardizeUploads" class="btn ghost" type="button">Sjednotit nahrané obrázky (čtvercové PNG)</button>
+          <label class="hint" style="margin:0 .4rem 0 0">Cílová velikost</label>
+          <select id="stdSize">
+            <option value="192">192 px (mobil rychle)</option>
+            <option value="256" selected>256 px</option>
+            <option value="300">300 px (PC)</option>
+            <option value="512">512 px</option>
+          </select>
+          <span class="hint">Převede nahrané fotky na čtverec (cover), průhledné PNG – stejné měřítko jako ikony.</span>
+        </div>
+        <div id="stdStatus" class="hint"></div>
+        <div class="hint">Když nic nenahraješ a nic nezaklikneš v knihovně, vytvoří se automaticky barevné očíslované ikony.</div>
+
+        <label>Počet karet (hráčů)</label>
+        <input id="players" type="number" min="1" max="120" value="15" />
+
+        <div class="row">
+          <div style="flex:1">
+            <label>Velikost mřížky</label>
+            <select id="size">
+              <option value="5" selected>5 × 5</option>
+              <option value="4">4 × 4</option>
+              <option value="3">3 × 3</option>
+            </select>
+          </div>
+          <div class="flex" style="margin-top:1.3rem">
+            <input id="free" type="checkbox" checked />
+            <label for="free" style="margin:0">Střed je „FREE“ (automaticky označený)</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="flex">
+            <input id="unique" type="checkbox" checked />
+            <label for="unique" style="margin:0">Vynutit jednoho prvního výherce</label>
+          </div>
+          <div class="flex">
+            <input id="seeded" type="checkbox" />
+            <label for="seeded" style="margin:0">Použít pevné náhodné seed (opakovatelný výsledek)</label>
+          </div>
+        </div>
+
+        <label>Počet unikátních symbolů v balíčku (fallback)</label>
+        <input id="deckSize" type="number" min="9" max="200" value="60" />
+        <div class="hint">Použije se jen pokud nevybereš nic v knihovně ani nenahraješ obrázky.</div>
+
+        <div class="divider"></div>
+        <div class="row">
+          <button id="go" class="btn" disabled>Vygenerovat karty + pořadí (PDF)</button>
+          <button id="dlCards" class="btn secondary" disabled>Stáhnout PDF karet</button>
+          <button id="dlCalls" class="btn ghost" disabled>Stáhnout PDF s pořadím</button>
+        </div>
+        <div class="hint">Po vygenerování se zde zpřístupní tlačítka pro stažení obou PDF.</div>
+        <div id="deckInfo" class="hint"></div>
+      </div>
+    </section>
+
+    <!-- Knihovna obrázků (Twemoji CDN) -->
+    <section class="card">
+      <h2><span style="vertical-align:middle;">🖼️</span> Knihovna dětských ikon</h2>
+      <div class="content">
+        <div class="row" style="justify-content:space-between;">
+          <div class="hint">Motivy: zvířátka, ovoce, počasí, hračky, doprava…</div>
+          <div class="row">
+            <button id="selectAll" class="btn ghost" type="button">Vybrat vše</button>
+            <button id="clearAll" class="btn ghost" type="button">Zrušit výběr</button>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="row" style="gap:.6rem;flex-wrap:wrap">
+          <label class="flex"><input id="filter-all" name="cat" type="radio" checked> Vše</label>
+          <label class="flex"><input name="cat" type="radio" value="animals"> Zvířátka</label>
+          <label class="flex"><input name="cat" type="radio" value="food"> Jídlo & ovoce</label>
+          <label class="flex"><input name="cat" type="radio" value="weather"> Počasí</label>
+          <label class="flex"><input name="cat" type="radio" value="toys"> Hračky & zábava</label>
+          <label class="flex"><input name="cat" type="radio" value="transport"> Doprava</label>
+          <label class="flex"><input name="cat" type="radio" value="nature"> Příroda</label>
+          <label class="flex"><input name="cat" type="radio" value="sea"> Moře & oceán</label>
+          <label class="flex"><input name="cat" type="radio" value="space"> Vesmír & fantasy</label>
+        </div>
+        <div class="row" style="justify-content:flex-end">
+          <span class="hint" style="margin-right:auto">Tip: Tlačítka níže pracují s <strong>aktuálně zvolenou kategorií</strong>.</span>
+          <button id="selectShown" class="btn ghost" type="button">Vybrat zobrazené</button>
+          <button id="clearShown" class="btn ghost" type="button">Zrušit zobrazené</button>
+        </div>
+        <div id="gallery" class="preview" style="margin-top:.8rem"></div>
+        <div id="selSummary" class="hint">Vybráno: 0 ikon.</div>
+      </div>
+    </section>
+
+    <!-- Přehled vybraných obrázků (balíček) -->
+    <section class="card">
+      <h2><span style="vertical-align:middle;">🔍</span> Vybrané obrázky (balíček)</h2>
+      <div class="content">
+        <div class="hint">Zde uvidíš všechny <strong>aktuálně použité</strong> symboly pro generování: nahrané fotky + vybranou knihovnu (nebo fallback, pokud není nic vybráno).</div>
+        <div id="deckPreview" class="preview" style="max-height:360px; overflow:auto"></div>
+        <div class="divider"></div>
+        <div class="log" id="log" aria-live="polite"></div>
+        <div id="status" class="hint">Připraveno.</div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    © 2025 – Obrázkové Bingo.<br>
+    Vše běží lokálně v prohlížeči (žádný server).<br>
+    <span style="font-size:0.95em;">Emoji artwork by Twemoji (CC-BY 4.0).</span>
+  </footer>
+
+  <!-- Knihovny (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <!-- Zbytek JS zůstává stejný -->
+  <!-- ... -->
+</body>
+</html>
